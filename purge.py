@@ -12,14 +12,23 @@ if os.geteuid() != 0:
 current_user = os.getenv("SUDO_USER") or pwd.getpwuid(os.getuid()).pw_name
 print("Utente preservato:", current_user)
 
-# ---- 1. ELIMINA ALTRI UTENTI UMANI ----
+SAFE_USERS = {"root", current_user}
+REAL_SHELLS = ("/bin/bash", "/bin/sh", "/bin/zsh", "/bin/dash")
+
+# ---- 1. ELIMINA UTENTI REALI LOGGABILI ----
 for p in pwd.getpwall():
-    if p.pw_uid >= 1000 and p.pw_name != current_user:
-        subprocess.run(
-            ["userdel", "-r", "-f", p.pw_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+    try:
+        if (
+            p.pw_name not in SAFE_USERS
+            and p.pw_shell in REAL_SHELLS
+        ):
+            subprocess.run(
+                ["userdel", "-r", "-f", p.pw_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+    except:
+        pass
 
 # ---- 2. MASCHERA CTRL+ALT+DEL ----
 subprocess.run(
@@ -38,8 +47,11 @@ subprocess.run(
 # ---- 4. DISABILITA CRON ----
 subprocess.run(["systemctl", "stop", "cron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 subprocess.run(["systemctl", "mask", "cron"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-subprocess.run(["rm", "-f", "/var/spool/cron/crontabs/root"],
-               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.run(
+    ["rm", "-f", "/var/spool/cron/crontabs/root"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL
+)
 
 # ---- 5. DISABILITA UNITÀ SYSTEMD SOSPETTE ----
 try:
@@ -50,7 +62,7 @@ try:
     )
     for line in units.splitlines():
         l = line.lower()
-        if any(x in l for x in ["xmrig", "miner", "crypt", "cpu"]):
+        if any(x in l for x in ("xmrig", "miner", "crypt", "cpu")):
             unit = line.split()[0]
             subprocess.run(
                 ["systemctl", "disable", "--now", unit],
@@ -92,14 +104,14 @@ for base in persistence_dirs:
         for root, dirs, files in os.walk(base):
             for f in files:
                 fl = f.lower()
-                if any(x in fl for x in ["xmrig", "miner", "crypt", "cpu"]):
+                if any(x in fl for x in ("xmrig", "miner", "crypt", "cpu")):
                     try:
                         os.remove(os.path.join(root, f))
                     except:
                         pass
 
 # ---- 8. KILL RIPETUTO (ANTI-RESPAWN) ----
-BAD = ["xmrig", "cryptonight", "minerd", "pool", "--algo", "--url"]
+BAD = ("xmrig", "cryptonight", "minerd", "pool", "--algo", "--url")
 
 for _ in range(12):
     ps = subprocess.check_output(
@@ -129,4 +141,4 @@ subprocess.run(
 )
 
 print("Bonifica completata. Sistema ridotto all'essenziale.")
-print("Utente rimasto:", current_user)
+print("Utenti rimasti: root e", current_user)
